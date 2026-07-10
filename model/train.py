@@ -17,8 +17,7 @@ BEST_MODEL_PATH = os.path.join(MODEL_DIR, "best_model.h5")
 CURVES_PATH = os.path.join(MODEL_DIR, "training_curves.png")
 
 NUM_SAMPLES = 500
-NUM_CLASSES = 100
-TIME_STEPS = 30
+NUM_CLASSES = 36
 FEATURES = 126
 EPOCHS = 5
 BATCH_SIZE = 32
@@ -27,7 +26,7 @@ SEED = 42
 
 def make_dummy_data():
     rng = np.random.default_rng(SEED)
-    X = rng.random((NUM_SAMPLES, TIME_STEPS, FEATURES)).astype(np.float32)
+    X = rng.random((NUM_SAMPLES, FEATURES)).astype(np.float32)
     labels = rng.integers(0, NUM_CLASSES, size=NUM_SAMPLES)
     y = tf.keras.utils.to_categorical(labels, num_classes=NUM_CLASSES)
     return X, y
@@ -65,7 +64,7 @@ def main():
     tf.random.set_seed(SEED)
     np.random.seed(SEED)
 
-    model = build_model(input_shape=(TIME_STEPS, FEATURES), num_classes=NUM_CLASSES)
+    model = build_model(input_shape=(FEATURES,), num_classes=NUM_CLASSES)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
         loss="categorical_crossentropy",

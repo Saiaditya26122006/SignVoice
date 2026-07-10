@@ -1,13 +1,19 @@
 """
-SignVoice - hand landmark extraction.
+SignVoice - hand landmark extraction from static images.
 
-Runs MediaPipe Hands over a dataset of sign-language class folders (0-9, A-Z)
-and produces:
-  * X.npy         - float32, shape (N, 126) landmark vectors
-  * y.npy         - int64,   shape (N,)     class labels
+Runs MediaPipe Hands over a dataset laid out as:
+  data/train/<class>/*.jpg
+  data/val/<class>/*.jpg
+  data/test/<class>/*.jpg
+
+and produces one (X, y) pair per split under scripts/:
+  * X_train.npy / y_train.npy
+  * X_val.npy   / y_val.npy
+  * X_test.npy  / y_test.npy
   * label_map.json - {"0": 0, ..., "A": 10, ..., "Z": 35}
 
-126 = 21 landmarks x 2 hands x 3 coords (x, y, z). Missing hand is zero-padded.
+Each image yields a single 126-value vector
+(21 landmarks x 2 hands x 3 coords). Missing hand is zero-padded.
 """
 
 import json
@@ -19,7 +25,6 @@ import mediapipe as mp
 import numpy as np
 
 
-# Where the raw dataset lives. Each subfolder = one class label.
 DATASET_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "data",
@@ -39,6 +44,8 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 CLASS_NAMES = [str(d) for d in range(10)] + list(string.ascii_uppercase)
 LABEL_MAP = {name: idx for idx, name in enumerate(CLASS_NAMES)}
+
+SPLITS = ("train", "val", "test")
 
 
 mp_hands = mp.solutions.hands
@@ -92,24 +99,30 @@ def _is_image_file(name):
     return os.path.splitext(name)[1].lower() in IMAGE_EXTENSIONS
 
 
-def process_dataset(dataset_path, output_path):
-    """Walk the dataset, extract landmarks, save X.npy + y.npy + label_map.json."""
-    if not os.path.isdir(dataset_path):
-        raise FileNotFoundError(f"Dataset directory not found: {dataset_path}")
-    os.makedirs(output_path, exist_ok=True)
-
+def _process_split(split_dir, split_name):
+    """Extract (X, y) arrays for a single split folder."""
     X = []
     y = []
 
+    if not os.path.isdir(split_dir):
+        print(f"[skip] split '{split_name}': folder not found at {split_dir}")
+        return (
+            np.empty((0, LANDMARK_VECTOR_SIZE), dtype=np.float32),
+            np.empty((0,), dtype=np.int64),
+        )
+
     class_folders = sorted(
-        name for name in os.listdir(dataset_path)
-        if os.path.isdir(os.path.join(dataset_path, name))
+        name for name in os.listdir(split_dir)
+        if os.path.isdir(os.path.join(split_dir, name))
     )
     if not class_folders:
-        print(f"No class folders found under {dataset_path}")
-        return
+        print(f"No class folders found under {split_dir}")
+        return (
+            np.empty((0, LANDMARK_VECTOR_SIZE), dtype=np.float32),
+            np.empty((0,), dtype=np.int64),
+        )
 
-    print(f"Found {len(class_folders)} class folders under {dataset_path}\n")
+    print(f"\n== split '{split_name}' — {len(class_folders)} class folders ==")
 
     for class_name in class_folders:
         if class_name not in LABEL_MAP:
@@ -117,7 +130,7 @@ def process_dataset(dataset_path, output_path):
             continue
 
         label = LABEL_MAP[class_name]
-        class_dir = os.path.join(dataset_path, class_name)
+        class_dir = os.path.join(split_dir, class_name)
         image_files = [
             f for f in sorted(os.listdir(class_dir)) if _is_image_file(f)
         ]
@@ -152,18 +165,31 @@ def process_dataset(dataset_path, output_path):
         else np.empty((0, LANDMARK_VECTOR_SIZE), dtype=np.float32)
     )
     y_arr = np.array(y, dtype=np.int64)
+    return X_arr, y_arr
 
-    x_path = os.path.join(output_path, "X.npy")
-    y_path = os.path.join(output_path, "y.npy")
-    np.save(x_path, X_arr)
-    np.save(y_path, y_arr)
+
+def process_dataset(dataset_path, output_path):
+    """Process train/val/test splits and save one (X, y) pair per split."""
+    if not os.path.isdir(dataset_path):
+        raise FileNotFoundError(f"Dataset directory not found: {dataset_path}")
+    os.makedirs(output_path, exist_ok=True)
+
+    for split_name in SPLITS:
+        split_dir = os.path.join(dataset_path, split_name)
+        X_arr, y_arr = _process_split(split_dir, split_name)
+
+        x_path = os.path.join(output_path, f"X_{split_name}.npy")
+        y_path = os.path.join(output_path, f"y_{split_name}.npy")
+        np.save(x_path, X_arr)
+        np.save(y_path, y_arr)
+
+        print(f"\nSaved: {x_path}  shape={X_arr.shape}")
+        print(f"Saved: {y_path}  shape={y_arr.shape}")
 
     with open(LABEL_MAP_PATH, "w", encoding="utf-8") as f:
         json.dump(LABEL_MAP, f, indent=2)
 
-    print(f"\nSaved: {x_path}  shape={X_arr.shape}")
-    print(f"Saved: {y_path}  shape={y_arr.shape}")
-    print(f"Saved: {LABEL_MAP_PATH}  ({len(LABEL_MAP)} classes)")
+    print(f"\nSaved: {LABEL_MAP_PATH}  ({len(LABEL_MAP)} classes)")
 
 
 if __name__ == "__main__":
