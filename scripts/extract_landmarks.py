@@ -25,6 +25,10 @@ import mediapipe as mp
 import numpy as np
 
 
+# ---------------------------------------------------------------------------
+# EDIT THIS: path to the dataset root (must contain train/ val/ test/ subfolders).
+# Example for Google Colab: DATASET_PATH = "/content/data"
+# ---------------------------------------------------------------------------
 DATASET_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "data",
@@ -48,7 +52,6 @@ LABEL_MAP = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 SPLITS = ("train", "val", "test")
 
 
-mp_hands = mp.solutions.hands
 _hands_detector = None
 
 
@@ -56,7 +59,7 @@ def _get_detector():
     """Lazy singleton — reused across images to avoid re-init overhead."""
     global _hands_detector
     if _hands_detector is None:
-        _hands_detector = mp_hands.Hands(
+        _hands_detector = mp.solutions.hands.Hands(
             static_image_mode=True,
             max_num_hands=NUM_HANDS,
             min_detection_confidence=0.5,
