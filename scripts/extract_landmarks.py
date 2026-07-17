@@ -23,20 +23,20 @@ import string
 import cv2
 import mediapipe as mp
 import numpy as np
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
 
 
 # ---------------------------------------------------------------------------
 # EDIT THIS: path to the dataset root (must contain train/ val/ test/ subfolders).
 # Example for Google Colab: DATASET_PATH = "/content/data"
 # ---------------------------------------------------------------------------
-DATASET_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data",
-)
+DATASET_PATH = "data/isl_dataset_split"
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = SCRIPTS_DIR
+OUTPUT_DIR = "data/landmarks"
 LABEL_MAP_PATH = os.path.join(SCRIPTS_DIR, "label_map.json")
+MODEL_PATH = os.path.join(SCRIPTS_DIR, "hand_landmarker.task")
 
 NUM_LANDMARKS_PER_HAND = 21
 COORDS_PER_LANDMARK = 3
@@ -59,17 +59,26 @@ def _get_detector():
     """Lazy singleton — reused across images to avoid re-init overhead."""
     global _hands_detector
     if _hands_detector is None:
-        _hands_detector = mp.solutions.hands.Hands(
-            static_image_mode=True,
-            max_num_hands=NUM_HANDS,
-            min_detection_confidence=0.5,
+        if not os.path.isfile(MODEL_PATH):
+            raise FileNotFoundError(
+                f"Hand landmarker model not found at {MODEL_PATH}. "
+                "Download from https://storage.googleapis.com/mediapipe-models/"
+                "hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+            )
+        base_options = mp_python.BaseOptions(model_asset_path=MODEL_PATH)
+        options = mp_vision.HandLandmarkerOptions(
+            base_options=base_options,
+            running_mode=mp_vision.RunningMode.IMAGE,
+            num_hands=NUM_HANDS,
+            min_hand_detection_confidence=0.5,
         )
+        _hands_detector = mp_vision.HandLandmarker.create_from_options(options)
     return _hands_detector
 
 
 def _hand_to_vector(hand_landmarks):
     return np.array(
-        [c for lm in hand_landmarks.landmark for c in (lm.x, lm.y, lm.z)],
+        [c for lm in hand_landmarks for c in (lm.x, lm.y, lm.z)],
         dtype=np.float32,
     )
 
@@ -84,13 +93,14 @@ def extract_landmarks_from_image(image_path):
         raise IOError(f"Could not read image: {image_path}")
 
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    result = _get_detector().process(rgb)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    result = _get_detector().detect(mp_image)
 
-    if not result.multi_hand_landmarks:
+    if not result.hand_landmarks:
         return None
 
     hand_vectors = [
-        _hand_to_vector(h) for h in result.multi_hand_landmarks[:NUM_HANDS]
+        _hand_to_vector(h) for h in result.hand_landmarks[:NUM_HANDS]
     ]
     while len(hand_vectors) < NUM_HANDS:
         hand_vectors.append(np.zeros(PER_HAND_SIZE, dtype=np.float32))
